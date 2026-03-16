@@ -3,7 +3,7 @@
  * Plugin Name: VETTRYX WP Audit Log
  * Plugin URI:  https://github.com/vettryx/vettryx-wp-core
  * Description: Submódulo do VETTRYX WP Core para registro de atividades, monitoramento e auditoria de segurança.
- * Version:     1.0.2
+ * Version:     1.0.3
  * Author:      VETTRYX Tech
  * Author URI:  https://vettryx.com.br
  * License:     Proprietária (Uso Comercial Exclusivo)
@@ -214,28 +214,25 @@ function vettryx_audit_dashboard_html() {
 
 /**
  * ==============================================================================
- * 4. ROTAÇÃO E LIMPEZA DE LOGS (CRON JOB)
- * Mantém o banco otimizado apagando registros mais velhos que 180 dias.
+ * 4. ROTAÇÃO E LIMPEZA DE REGISTOS (CRON JOB)
+ * Mantém a base de dados otimizada apagando registos com mais de 180 dias.
  * ==============================================================================
  */
 
-// Agenda a rotina para rodar diariamente (se já não estiver agendada)
-if (!wp_next_scheduled('vettryx_audit_daily_cleanup')) {
-    wp_schedule_event(time(), 'daily', 'vettryx_audit_daily_cleanup');
+// Agendamento seguro atrelado à inicialização do painel, sem usar hooks de desativação
+add_action('admin_init', 'vettryx_audit_schedule_cleanup');
+function vettryx_audit_schedule_cleanup() {
+    if (!wp_next_scheduled('vettryx_audit_daily_cleanup')) {
+        wp_schedule_event(time(), 'daily', 'vettryx_audit_daily_cleanup');
+    }
 }
 
-// A função que faz a limpeza no banco
+// A função que faz a limpeza na base de dados
 add_action('vettryx_audit_daily_cleanup', 'vettryx_audit_purge_old_records');
 function vettryx_audit_purge_old_records() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'vettryx_audit_log';
     
-    // Deleta tudo que for mais antigo que 180 dias
+    // Elimina tudo o que for mais antigo que 180 dias
     $wpdb->query("DELETE FROM $table_name WHERE created_at < DATE_SUB(NOW(), INTERVAL 180 DAY)");
-}
-
-// Limpa o agendamento se o plugin for desativado
-register_deactivation_hook(__FILE__, 'vettryx_audit_deactivation');
-function vettryx_audit_deactivation() {
-    wp_clear_scheduled_hook('vettryx_audit_daily_cleanup');
 }
