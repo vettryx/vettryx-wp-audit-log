@@ -2,8 +2,8 @@
 /**
  * Plugin Name: VETTRYX WP Audit Log
  * Plugin URI:  https://github.com/vettryx/vettryx-wp-core
- * Description: Submódulo do VETTRYX WP Core para registo de atividades, monitorização e auditoria de segurança.
- * Version:     1.0.4
+ * Description: Submódulo do VETTRYX WP Core para registro de atividades, monitoramento e auditoria de segurança.
+ * Version:     1.0.5
  * Author:      VETTRYX Tech
  * Author URI:  https://vettryx.com.br
  * License:     Proprietária (Uso Comercial Exclusivo)
@@ -16,15 +16,13 @@ if (!defined('ABSPATH')) {
 
 /**
  * ==============================================================================
- * 1. INSTALAÇÃO DA BASE DE DADOS (OTIMIZADO)
+ * 1. INSTALAÇÃO DO BANCO DE DADOS (GATILHO SEGURO)
+ * A tabela só será criada quando o usuário acessar a página do painel.
  * ==============================================================================
  */
-add_action('admin_init', 'vettryx_audit_check_and_create_table');
 if (!function_exists('vettryx_audit_check_and_create_table')) {
     function vettryx_audit_check_and_create_table() {
-        $db_version = '1.0.2';
-        
-        // CORREÇÃO: Removemos a consulta SHOW TABLES pesada. Agora ele só verifica uma string leve.
+        $db_version = '1.0.3';
         if (get_option('vettryx_audit_db_version') !== $db_version) {
             global $wpdb;
             $table_name = $wpdb->prefix . 'vettryx_audit_log';
@@ -54,12 +52,20 @@ if (!function_exists('vettryx_insert_audit_log')) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'vettryx_audit_log';
         
-        $current_user = wp_get_current_user();
-        $user_id = $current_user->exists() ? $current_user->ID : 0;
-        $user_name = $current_user->exists() ? $current_user->user_login : 'Sistema Automático';
+        $user_id = 0;
+        $user_name = 'Sistema Automático';
+        
+        // Proteção contra Fatal Errors durante background updates (onde o wp_get_current_user pode não existir)
+        if (function_exists('wp_get_current_user')) {
+            $current_user = wp_get_current_user();
+            $user_id = $current_user->exists() ? $current_user->ID : 0;
+            $user_name = $current_user->exists() ? $current_user->user_login : 'Sistema Automático';
+        }
         
         $ip = isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field($_SERVER['REMOTE_ADDR']) : 'Desconhecido';
 
+        // Silencia erros caso a tabela ainda não tenha sido criada pelo admin
+        $wpdb->suppress_errors = true;
         $wpdb->insert($table_name, [
             'user_id'     => $user_id,
             'user_name'   => $user_name,
@@ -68,12 +74,13 @@ if (!function_exists('vettryx_insert_audit_log')) {
             'object_name' => $object_name,
             'ip_address'  => $ip
         ]);
+        $wpdb->suppress_errors = false;
     }
 }
 
 /**
  * ==============================================================================
- * 2. OS ESPIÕES (HOOKS DE MONITORIZAÇÃO)
+ * 2. OS ESPIÕES (HOOKS DE MONITORAMENTO)
  * ==============================================================================
  */
 
@@ -133,20 +140,18 @@ if (!function_exists('vettryx_audit_log_delete_post')) {
 add_action('upgrader_process_complete', 'vettryx_audit_log_updates', 10, 2);
 if (!function_exists('vettryx_audit_log_updates')) {
     function vettryx_audit_log_updates($upgrader_object, $options) {
-        if ($options['action'] == 'update' && $options['type'] == 'plugin') {
-            if (isset($options['plugins'])) {
+        if (isset($options['action']) && $options['action'] == 'update' && isset($options['type'])) {
+            if ($options['type'] == 'plugin' && isset($options['plugins'])) {
                 foreach ($options['plugins'] as $plugin) {
                     vettryx_insert_audit_log('Atualizou Plugin', 'Sistema', $plugin);
                 }
-            }
-        } elseif ($options['action'] == 'update' && $options['type'] == 'theme') {
-            if (isset($options['themes'])) {
+            } elseif ($options['type'] == 'theme' && isset($options['themes'])) {
                 foreach ($options['themes'] as $theme) {
                     vettryx_insert_audit_log('Atualizou Tema', 'Sistema', $theme);
                 }
+            } elseif ($options['type'] == 'core') {
+                vettryx_insert_audit_log('Atualizou WordPress', 'Core', 'Versão Nova');
             }
-        } elseif ($options['action'] == 'update' && $options['type'] == 'core') {
-            vettryx_insert_audit_log('Atualizou WordPress', 'Core', 'Versão Nova');
         }
     }
 }
@@ -174,6 +179,9 @@ if (!function_exists('vettryx_audit_dashboard_html')) {
     function vettryx_audit_dashboard_html() {
         if (!current_user_can('manage_options')) return;
 
+        // Gatilho Seguro: O banco só é verificado/criado ao abrir esta tela específica
+        vettryx_audit_check_and_create_table();
+
         global $wpdb;
         $table_name = $wpdb->prefix . 'vettryx_audit_log';
 
@@ -184,7 +192,7 @@ if (!function_exists('vettryx_audit_dashboard_html')) {
                 <span class="dashicons dashicons-visibility" style="font-size: 28px; width: 28px; height: 28px;"></span> 
                 VETTRYX WP Audit Log
             </h1>
-            <p>Monitorização contínua de segurança e edições do sistema. Os dados daqui alimentarão os seus relatórios.</p>
+            <p>Monitoramento contínuo de segurança e edições do sistema. Os dados daqui alimentarão seus relatórios.</p>
 
             <table class="wp-list-table widefat fixed striped">
                 <thead>
@@ -199,7 +207,7 @@ if (!function_exists('vettryx_audit_dashboard_html')) {
                 </thead>
                 <tbody>
                     <?php if (empty($logs)) : ?>
-                        <tr><td colspan="6" style="padding: 15px; text-align: center;">Nenhum registo encontrado ainda.</td></tr>
+                        <tr><td colspan="6" style="padding: 15px; text-align: center;">Nenhum registro encontrado ainda.</td></tr>
                     <?php else : ?>
                         <?php foreach ($logs as $log) : ?>
                             <tr>
@@ -238,6 +246,8 @@ if (!function_exists('vettryx_audit_purge_old_records')) {
     function vettryx_audit_purge_old_records() {
         global $wpdb;
         $table_name = $wpdb->prefix . 'vettryx_audit_log';
+        $wpdb->suppress_errors = true; // Evita erros se a tabela não existir
         $wpdb->query("DELETE FROM $table_name WHERE created_at < DATE_SUB(NOW(), INTERVAL 180 DAY)");
+        $wpdb->suppress_errors = false;
     }
 }
