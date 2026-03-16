@@ -3,7 +3,7 @@
  * Plugin Name: VETTRYX WP Audit Log
  * Plugin URI:  https://github.com/vettryx/vettryx-wp-core
  * Description: Submódulo do VETTRYX WP Core para registro de atividades, monitoramento e auditoria de segurança.
- * Version:     1.0.0
+ * Version:     1.0.1
  * Author:      VETTRYX Tech
  * Author URI:  https://vettryx.com.br
  * License:     Proprietária (Uso Comercial Exclusivo)
@@ -86,13 +86,45 @@ function vettryx_audit_log_user_login($user_login, $user) {
 add_action('save_post', 'vettryx_audit_log_save_post', 10, 3);
 function vettryx_audit_log_save_post($post_id, $post, $update) {
     if (wp_is_post_revision($post_id) || defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
-    if ($post->post_status === 'auto-draft') return;
+    
+    // Ignora se for rascunho automático ou se estiver indo para a lixeira
+    if (in_array($post->post_status, ['auto-draft', 'trash'])) return;
 
     $action = $update ? 'Editou' : 'Criou';
     $post_type_obj = get_post_type_object($post->post_type);
     $type_name = $post_type_obj ? $post_type_obj->labels->singular_name : $post->post_type;
 
     vettryx_insert_audit_log($action, $type_name, $post->post_title);
+}
+
+// B.2. Monitora Envio para a Lixeira
+add_action('wp_trash_post', 'vettryx_audit_log_trash_post');
+function vettryx_audit_log_trash_post($post_id) {
+    $post = get_post($post_id);
+    $post_type_obj = get_post_type_object($post->post_type);
+    $type_name = $post_type_obj ? $post_type_obj->labels->singular_name : $post->post_type;
+    vettryx_insert_audit_log('Moveu para a Lixeira', $type_name, $post->post_title);
+}
+
+// B.3. Monitora Restauração da Lixeira
+add_action('untrash_post', 'vettryx_audit_log_untrash_post');
+function vettryx_audit_log_untrash_post($post_id) {
+    $post = get_post($post_id);
+    $post_type_obj = get_post_type_object($post->post_type);
+    $type_name = $post_type_obj ? $post_type_obj->labels->singular_name : $post->post_type;
+    vettryx_insert_audit_log('Restaurou da Lixeira', $type_name, $post->post_title);
+}
+
+// B.4. Monitora Exclusão Permanente
+add_action('before_delete_post', 'vettryx_audit_log_delete_post');
+function vettryx_audit_log_delete_post($post_id) {
+    $post = get_post($post_id);
+    // Ignora exclusões de revisões (o WP apaga revisões antigas sozinho)
+    if ($post->post_type === 'revision') return;
+
+    $post_type_obj = get_post_type_object($post->post_type);
+    $type_name = $post_type_obj ? $post_type_obj->labels->singular_name : $post->post_type;
+    vettryx_insert_audit_log('Excluiu Permanentemente', $type_name, $post->post_title);
 }
 
 // C. Monitora Atualizações de Plugins/Temas/Core (Crucial para o seu relatório)
@@ -124,8 +156,8 @@ add_action('admin_menu', 'vettryx_audit_add_submenu', 99);
 function vettryx_audit_add_submenu() {
     add_submenu_page(
         'vettryx-core-modules',
-        'VETTRYX WP Audit Log',
-        'VETTRYX WP Audit Log',
+        'Audit Log - VETTRYX Tech',
+        'Audit Log',
         'manage_options',
         'vettryx-wp-audit-log',
         'vettryx_audit_dashboard_html'
