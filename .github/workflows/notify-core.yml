@@ -1,0 +1,20 @@
+name: Notifica VETTRYX Core
+
+on:
+  push:
+    branches:
+      - main # Dispara apenas para a branch principal
+    paths:
+      - 'vettryx-wp-audit-log.php' # Apenas dispara quando este arquivo específico for alterado
+  workflow_dispatch: # Permite disparar manualmente a partir da interface do GitHub
+
+jobs:
+  notify-core:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispara aviso para o Core
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CORE_REPO_PAT }}
+          repository: vettryx/vettryx-wp-core
+          event-type: update-modules
